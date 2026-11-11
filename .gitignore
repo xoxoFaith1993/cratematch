@@ -1,0 +1,7 @@
+__pycache__/
+build/
+dist/
+installer/Output/
+*.spec
+tests/library/
+tests/expected.json
