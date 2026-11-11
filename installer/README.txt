@@ -45,6 +45,12 @@ If CrateMatch says your Spotify "isn't on the list yet":
 3. When they say you're added, click "Sign in with Spotify" again.
 Until then, pasting a Spotify playlist link still works.
 
+SOMETHING WRONG? CLICK "REPORT A PROBLEM"
+The big button at the top right sends a message straight to the person who made
+CrateMatch. Say what happened and what you were trying to do. It also sends the song
+list you were working on (song names only) so the problem can be found and fixed.
+If an error pops up, it offers to send a report for you.
+
 GOOD TO KNOW
 - Your music files are never moved, renamed or changed.
 - Spotify playlists that someone else made: Spotify only lets apps read the first 100

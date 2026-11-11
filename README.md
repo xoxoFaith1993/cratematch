@@ -112,10 +112,18 @@ sign-in are kept. With no internet it just opens normally.
 - Playlists made by someone else: Spotify only shares their first 100 songs with apps. For a longer
   one, select all its songs in the Spotify app (Ctrl+A, Ctrl+C) and paste them into the text box.
 
+### Report a problem
+
+The big **⚠ Report a problem** button (top right) sends a message to the developer, with CrateMatch's
+version, a few setup facts (VirtualDJ found, library size, settings) and, if ticked, the song list being
+worked on: song names and which file each matched, never folder paths. Error messages offer to send a
+report too. Offline, **Copy report instead** puts it on the clipboard to text instead.
+
 ### Privacy
 
-Everything runs on your PC. CrateMatch talks only to Spotify (to read a playlist) and GitHub (to check
-for updates). Your Spotify sign-in is stored encrypted for your Windows user only.
+Everything runs on your PC. CrateMatch talks only to Spotify (to read a playlist), GitHub (to check
+for updates) and, when you click Send in **Report a problem**, the developer's report inbox. Your
+Spotify sign-in is stored encrypted for your Windows user only.
 
 ---
 
@@ -137,6 +145,10 @@ python tools\make_screenshots.py     # README screenshots (uses tests\library)
   creates a GitHub release. Installed copies update the next time they open. Releases only move
   forward: to undo a bad update, publish a fixed one.
 - `CrateMatch.exe --selftest <folder>` checks everything except the window and writes `selftest.log`.
+- **Read Reports.bat** shows new reports from the Report a problem button (`--all` for every one).
+  Reports go to the Hunt Tracker Firebase database's `issues` list tagged `setup.app = "CrateMatch"`
+  (anonymous sign-in per copy; only the developer's Hunt Tracker id can read them), so the reader signs
+  in with the installed Hunt Tracker's settings.
 
 ### How it talks to VirtualDJ (8.5 / 2021+)
 

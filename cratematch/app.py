@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 
-from . import APP_NAME, VERSION, library, match, paths, sources, spotify_auth, vdj
+from . import APP_NAME, VERSION, library, match, paths, report, sources, spotify_auth, vdj
 
 RED = "#C8283C"
 RED_HOVER = "#A51F31"
@@ -78,8 +78,13 @@ class App(ctk.CTk):
         ctk.CTkLabel(top, text="CrateMatch", font=f_title, text_color=TEXT).pack(side="left")
         ctk.CTkLabel(top, text="   Turn a client's song list into a VirtualDJ playlist from the music you already have",
                      text_color=MUTED).pack(side="left", pady=(6, 0))
-        ctk.CTkButton(top, text="Settings", width=90, fg_color=PANEL, hover_color="#2A2D34",
+        ctk.CTkButton(top, text="Settings", width=90, height=36, fg_color=PANEL, hover_color="#2A2D34",
                       command=self.open_settings).pack(side="right")
+        # big and plain on purpose: anything odd -> one click to tell the developer
+        ctk.CTkButton(top, text="⚠   Report a problem", width=210, height=36, corner_radius=8,
+                      font=ctk.CTkFont(size=15, weight="bold"), fg_color="#3A1820", hover_color="#552230",
+                      border_width=2, border_color=RED, text_color="#FFD9DE",
+                      command=lambda: ReportDialog(self)).pack(side="right", padx=10)
 
         # 1. request
         req = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=10)
@@ -218,7 +223,41 @@ class App(ctk.CTk):
 
     def show_error(self, e):
         self.set_status("")
-        messagebox.showerror(APP_NAME, str(e) or e.__class__.__name__, parent=self)
+        msg = str(e) or e.__class__.__name__
+        self.last_error = msg
+        if messagebox.askyesno(APP_NAME, f"{msg}\n\nWould you like to report this problem so it can be fixed?",
+                               icon="error", parent=self):
+            ReportDialog(self, error=msg)
+
+    def report_context(self):
+        """What goes with a report automatically: setup + the list being worked on (song names only,
+        no folder paths, which would include the Windows user name)."""
+        lib = self.lib
+        setup = {"virtualdj_found": bool(self.vdj_home),
+                 "virtualdj_running": vdj.is_running(),
+                 "library_songs": len(lib) if lib is not None else -1,
+                 "library_from_vdj": sum(1 for it in lib.items if it.entry["in_vdj"]) if lib is not None else -1,
+                 "music_folders": len(self.settings.get("folders", [])),
+                 "spotify_signed_in": spotify_auth.signed_in(),
+                 "prefer_clean": bool(self.clean.get()),
+                 "split_sections": bool(self.split.get()),
+                 "last_error": getattr(self, "last_error", "")}
+        lines = []
+        if self.results:
+            c = {}
+            for i in range(len(self.results)):
+                st = self._row_status(i)
+                c[st] = c.get(st, 0) + 1
+            lines.append(f"List “{self.name.get().strip()}”: {len(self.results)} songs, " +
+                         ", ".join(f"{n} {s}" for s, n in c.items()))
+            for i, m in enumerate(self.results):
+                e = self.choice.get(i)
+                sec = f"[{m['req'].get('section')}] " if m["req"].get("section") else ""
+                got = os.path.basename(e["path"]) if e else "-"
+                lines.append(f"{STATUS_TEXT[self._row_status(i)].split()[-1]:8} {sec}{m['req']['raw']}  =>  {got}")
+        elif self.reqs:
+            lines.append(f"{len(self.reqs)} songs loaded, not matched yet")
+        return "\n".join(lines), setup
 
     def save_settings(self):
         paths.save_settings(self.settings)
@@ -675,6 +714,108 @@ HELP_NOT_ON_LIST = [
     ("When they say you're added, click “Sign in with Spotify” again.",
      "That's it. You'll stay signed in from then on."),
 ]
+
+
+class ReportDialog(ctk.CTkToplevel):
+    """Big, simple "tell the developer" box. Sends the message with the app's setup and the current list."""
+
+    def __init__(self, app, error=""):
+        super().__init__(app)
+        self.app = app
+        self.title("Report a problem")
+        self.geometry("620x560")
+        self.configure(fg_color=BG)
+        self.transient(app)
+        self.after(50, self.grab_set)
+        center_over(self, app)
+        ctk.CTkLabel(self, text="Report a problem", font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=TEXT).pack(anchor="w", padx=22, pady=(20, 2))
+        ctk.CTkLabel(self, text="Something not working, or something you'd like changed? Describe it here and "
+                     "it goes straight to the person who made CrateMatch. No problem is too small.",
+                     text_color=MUTED, wraplength=570, justify="left").pack(anchor="w", padx=22, pady=(0, 12))
+        ctk.CTkLabel(self, text="What happened? What were you trying to do?", font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=TEXT).pack(anchor="w", padx=22)
+        self.box = ctk.CTkTextbox(self, height=170, wrap="word", fg_color=PANEL, border_width=1,
+                                  border_color="#3A3D46", font=ctk.CTkFont(size=14))
+        self.box.pack(fill="x", padx=22, pady=(6, 10))
+        if error:
+            self.box.insert("1.0", f"I got this message: “{error}”\n\nI was trying to: ")
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=22)
+        ctk.CTkLabel(row, text="Your name (optional)", text_color=MUTED).pack(side="left")
+        self.who = ctk.CTkEntry(row, width=220)
+        self.who.insert(0, app.settings.get("report_name", ""))
+        self.who.pack(side="left", padx=10)
+        self.incl = ctk.CTkCheckBox(self, text="Include the song list I'm working on (song names only)",
+                                    fg_color=RED, hover_color=RED_HOVER)
+        self.incl.select()
+        self.incl.pack(anchor="w", padx=22, pady=(12, 0))
+        ctk.CTkLabel(self, text="Also sent automatically: CrateMatch's version, whether VirtualDJ was found, and "
+                     "how many songs are in your library. Nothing else from your computer.",
+                     text_color=MUTED, font=app.f_small, wraplength=570, justify="left").pack(anchor="w", padx=22, pady=(6, 0))
+        self.note = ctk.CTkLabel(self, text="", text_color=MUTED, wraplength=570, justify="left",
+                                 font=ctk.CTkFont(size=13, weight="bold"))
+        self.note.pack(anchor="w", padx=22, pady=(10, 0))
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(fill="x", padx=22, pady=18, side="bottom")
+        self.send_btn = ctk.CTkButton(btns, text="Send", width=180, height=44, fg_color=RED, hover_color=RED_HOVER,
+                                      font=ctk.CTkFont(size=16, weight="bold"), command=self.send)
+        self.send_btn.pack(side="right")
+        ctk.CTkButton(btns, text="Cancel", width=100, height=44, fg_color="#2A2D34", hover_color="#353943",
+                      command=self.destroy).pack(side="right", padx=10)
+        self.copy_btn = ctk.CTkButton(btns, text="Copy report instead", width=170, height=44, fg_color="#2A2D34",
+                                      hover_color="#353943", command=self.copy)
+        self.after(150, lambda: (self.box.focus_set(), self.box.mark_set("insert", "end")))
+
+    def _parts(self):
+        msg = self.box.get("1.0", "end").strip()
+        context, setup = self.app.report_context()
+        if not self.incl.get():
+            context = ""
+        return msg, context, setup
+
+    def send(self):
+        msg, context, setup = self._parts()
+        if not msg:
+            self.note.configure(text="Type what happened first, then click Send.", text_color=MISS_C)
+            return
+        name = self.who.get().strip()
+        if name != self.app.settings.get("report_name", ""):
+            self.app.settings["report_name"] = name
+            self.app.save_settings()
+        self.send_btn.configure(state="disabled", text="Sending…")
+        self.note.configure(text="Sending…", text_color=MUTED)
+
+        def work():
+            try:
+                report.send(msg, name, context, setup)
+                self.after(0, self.sent)
+            except Exception as e:
+                self.after(0, lambda e=e: self.failed(e))
+        threading.Thread(target=work, daemon=True).start()
+
+    def sent(self):
+        if not self.winfo_exists():
+            return
+        self.note.configure(text="Sent! Thank you, it'll be looked at soon.", text_color=OK_C)
+        self.send_btn.configure(text="Sent ✔")
+        self.after(2200, self.destroy)
+
+    def failed(self, e):
+        if not self.winfo_exists():
+            return
+        self.note.configure(text="Couldn't send it (no internet?). Try again in a moment, or click "
+                                 "“Copy report instead” and paste it into a text message.", text_color=MISS_C)
+        self.send_btn.configure(state="normal", text="Try again")
+        self.copy_btn.pack(side="left")
+
+    def copy(self):
+        msg, context, setup = self._parts()
+        text = report.build_text(msg or "(no message)", context)
+        text += f"\n\nCrateMatch {VERSION} · " + ", ".join(f"{k}={v}" for k, v in setup.items() if v not in ("", None))
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.note.configure(text="Copied. Paste it into a text message.", text_color=OK_C)
 
 
 class SpotifyHelp(ctk.CTkToplevel):

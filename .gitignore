@@ -5,3 +5,4 @@ installer/Output/
 *.spec
 tests/library/
 tests/expected.json
+tools/.seen_reports.json
