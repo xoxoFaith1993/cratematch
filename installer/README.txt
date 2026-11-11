@@ -21,6 +21,15 @@ HOW TO USE
 4. Click "Create VirtualDJ playlist". In VirtualDJ it's under My Lists on the left.
    If VirtualDJ was already open, click the little "-" next to My Lists, then "+".
 
+PARTS OF THE NIGHT (COCKTAIL HOUR, RECEPTION, FIRST DANCE...)
+- If the client's list has headings like "Cocktail hour:" or "Reception", the songs are
+  grouped by part, and VirtualDJ gets one list for the event with a sub-list for each
+  part (click the + next to it). Untick "Sub-list per section" for one plain list.
+- Client sent one Spotify playlist per part? Paste all the links at once, or load one
+  and then load the next: CrateMatch asks whether to add it as another sub-list.
+- Want to split a single playlist into parts yourself? Click "Edit as text", type
+  headings like "First Dance:" above the songs, then click "Find these songs".
+
 SIGNING IN WITH SPOTIFY
 1. Click "Sign in with Spotify". A small Spotify window pops up.
 2. Log in the way you always do (email, or Continue with Google / Facebook / Apple).

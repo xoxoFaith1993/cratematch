@@ -26,6 +26,7 @@ Nothing is downloaded, and your music files are never moved, renamed or changed.
 | **Pasted text** | Paste straight from a text, email or note. One song per line. |
 | **Files** | `.txt`, `.csv` (including Spotify exports from Exportify), Word `.docx` (paragraphs or tables), `.m3u` playlists. |
 | **Copied Spotify songs** | In the Spotify app, select songs (Ctrl+A) and copy (Ctrl+C), then paste. Each song link is looked up. |
+| **Several Spotify playlists** | A client with one playlist per moment (Cocktail hour, Reception…): paste all the links at once, or load one and then add the next. Each playlist becomes its own sub-list. |
 
 It understands how people actually write lists:
 
@@ -59,14 +60,31 @@ It understands how people actually write lists:
   leave it out, or show the file in Explorer. **Double-click** to leave a song out or put it back.
 - **Copy missing songs** puts the missing ones on your clipboard so you can get them.
 
-### 4. Creates the VirtualDJ playlist
+### 4. Creates the VirtualDJ playlist, with a sub-list for each part of the event
 
 Click **Create VirtualDJ playlist** and it appears in VirtualDJ under **My Lists**, in the client's
-order, named after the playlist or file (you can rename it first).
+order, named after the event, playlist or file (you can rename it first).
 
-![The new playlist in VirtualDJ's My Lists](docs/virtualdj-mylists.png)
+When the client's list is split into parts (headings like **Cocktail hour**, **Reception**, **First
+Dance**, or one Spotify playlist per moment), the results are grouped by part and **Sub-list per
+section** is ticked: the event's list holds every song, and clicking **+** next to it in VirtualDJ shows
+one sub-list per part. Untick it for a single plain playlist.
+
+![The event's list in VirtualDJ with a sub-list per part](docs/virtualdj-mylists.png)
 
 If VirtualDJ is already open, click the little **−** next to My Lists, then **+**, to make it appear.
+
+### Organizing a playlist into parts yourself
+
+**Edit as text** turns whatever is loaded (for example a single Spotify playlist) into an editable
+`Artist - Title` list in the text box. Type headings like `Cocktail hour:` or `First Dance:` above groups
+of songs, move lines around or delete some, then click **Find these songs**. Each heading becomes a
+sub-list.
+
+### Adding another Spotify playlist to the same event
+
+With one playlist loaded, click or paste a second one. CrateMatch asks whether to **add it as another
+sub-list** (one event folder in VirtualDJ) or start over.
 
 ---
 
@@ -128,6 +146,8 @@ python tools\make_screenshots.py     # README screenshots (uses tests\library)
 - Lists shown under **My Lists** are `MyLists\<name>.vdjfolder` files
   (`<VirtualFolder><song path=… size=… songlength=… artist=… title=… idx=…/>`), and their order is the
   `MyLists\order` file. CrateMatch writes both exactly the way VirtualDJ does. `.m3u` files there aren't shown.
+- Sub-lists (VirtualDJ's "Create List subfolder") live in `MyLists\<name>.subfolders\` with their own
+  `.vdjfolder` files and `order` file. Sub-lists the DJ adds there himself are kept when a list is replaced.
 
 ### Spotify app
 

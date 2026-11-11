@@ -25,7 +25,9 @@ Reception / dance floor:
 - KAROL G - BbY WOW
 - Tate McRae - Housewfie
 - Mark Ronson - Uptown Funk
-- Beyonce - Halo
+
+First Dance:
+Beyonce - Halo
 
 DO NOT PLAY:
 Macarena
@@ -68,8 +70,14 @@ def main():
         first = w.results
         w.load_text()
         wait_for(lambda: w.results is not first and bool(w.results),
-                 lambda: (w.name.delete(0, "end"), w.name.insert(0, "Johnson Wedding"),
-                          w.after(300, lambda: shot("text-list-results.png")), w.after(3000, w.destroy)))
+                 lambda: (w.after(300, lambda: shot("text-list-results.png")), w.after(2500, step3)))
+
+    def step3():  # make the VirtualDJ list with a sub-list per section
+        if "--create" in sys.argv:
+            messagebox.askyesno = lambda *a, **k: True
+            w.split.select()
+            w.create_playlist()
+        w.after(500, w.destroy)
 
     wait_for(lambda: w.lib is not None, step1)
     w.mainloop()

@@ -40,7 +40,8 @@ def lists_dir(home):
 
 
 def safe_name(name):
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", name or "").strip(" .")
+    name = re.sub(r"\s*[/\\|]\s*", " - ", name or "")          # "Reception / dance floor"
+    name = re.sub(r'[<>:"?*\x00-\x1f]', " ", name).strip(" .-")
     return re.sub(r"\s+", " ", name)[:120] or "Client request"
 
 
@@ -52,26 +53,59 @@ def _attr(v):
     return escape(str(v), {'"': "&quot;"})
 
 
-def _add_to_order(folder, name):
-    """MyLists\\order lists the names VirtualDJ shows, top to bottom; new lists go at the end."""
-    f = os.path.join(folder, "order")
+def _read_order(folder):
     try:
-        with open(f, encoding="utf-8-sig") as fh:
-            names = [ln.strip() for ln in fh if ln.strip()]
+        with open(os.path.join(folder, "order"), encoding="utf-8-sig") as fh:
+            return [ln.strip() for ln in fh if ln.strip()]
     except OSError:
-        names = [os.path.splitext(n)[0] for n in sorted(os.listdir(folder)) if n.endswith(".vdjfolder")]
+        return [os.path.splitext(n)[0] for n in sorted(os.listdir(folder)) if n.endswith(".vdjfolder")]
+
+
+def _write_order(folder, names):
+    with open(os.path.join(folder, "order"), "w", encoding="utf-8", newline="\r\n") as fh:
+        fh.write("\n".join(names) + "\n")
+
+
+def _add_to_order(folder, name):
+    """<folder>\\order lists the names VirtualDJ shows, top to bottom; new lists go at the end."""
+    names = _read_order(folder)
     if name not in names:
         names.append(name)
-        with open(f, "w", encoding="utf-8", newline="\r\n") as fh:
-            fh.write("\n".join(names) + "\n")
+    elif os.path.isfile(os.path.join(folder, "order")):
+        return
+    _write_order(folder, names)
 
 
-def write_playlist(home, name, entries, requests=None):
+def write_playlist(home, name, entries, requests=None, sections=None):
     """entries: library entries in play order (requests: the matching requests, used for the
     artist/title shown when a file has no tags). Overwrites a list with the same name.
-    Returns the file written. Written exactly the way VirtualDJ 8.5 saves its own lists."""
+
+    sections: optional [(section name, entries, requests), ...]. The list then also gets one
+    sub-list per section, the way VirtualDJ's "Create List subfolder" stores them:
+    MyLists\\<name>.vdjfolder (all songs) + MyLists\\<name>.subfolders\\<section>.vdjfolder + order.
+    Returns the main list's file."""
     name = safe_name(name)
     path = playlist_path(home, name)
+    _write_list(path, entries, requests)
+    _add_to_order(os.path.dirname(path), name)
+    if sections:
+        sub = os.path.splitext(path)[0] + ".subfolders"
+        os.makedirs(sub, exist_ok=True)
+        ours = []
+        for sname, sentries, sreqs in sections:
+            sname = safe_name(sname)
+            n, k = sname, 2
+            while n in ours:            # two sections with the same name
+                n, k = f"{sname} {k}", k + 1
+            ours.append(n)
+            _write_list(os.path.join(sub, n + ".vdjfolder"), sentries, sreqs)
+        # our sections first, in the client's order; keep any sub-lists the DJ made himself
+        _write_order(sub, ours + [n for n in _read_order(sub) if n not in ours
+                                  and os.path.exists(os.path.join(sub, n + ".vdjfolder"))])
+    return path
+
+
+def _write_list(path, entries, requests=None):
     rows = []
     for i, e in enumerate(entries):
         if not e.get("title") and requests and requests[i] and requests[i].get("title"):
@@ -97,8 +131,6 @@ def write_playlist(home, name, entries, requests=None):
     with open(tmp, "w", encoding="utf-8", newline="\r\n") as f:
         f.write(xml)
     os.replace(tmp, path)
-    _add_to_order(os.path.dirname(path), name)
-    return path
 
 
 def list_exists(home, name):

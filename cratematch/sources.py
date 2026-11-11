@@ -117,10 +117,12 @@ def is_heading(line):
     """A short line that names a section ("Reception:", "MUST PLAY", "First Dance") instead of a song.
     A normal "Artist - Title" line is never a heading unless it ends with ':' or '!' or is all caps."""
     s = LINE_PREFIX.sub("", unescape(line).strip(), count=1).strip()
-    if not s or len(s) > 60:
+    if not s or len(s) > 80 or re.search(r"https?://|spotify:|www\.", s, re.I):  # links are never headings
         return False
-    if s.endswith(":"):
+    if s.endswith(":") or re.match(r"(play ?list|event|list name)\s*:", s, re.I):
         return True
+    if len(s) > 60:
+        return False
     if not HEADING.search(s):
         return False
     bare = s.strip(" !:-–—*")
@@ -164,37 +166,107 @@ def parse_line(line):
     return _req("", s, raw=s)
 
 
+MOMENTS = re.compile(
+    r"\b(ceremony|reception|cocktail|dinner|first dance|last dance|grand entrance|entrance|processional|"
+    r"recessional|cake cutting|bouquet|garter|father|mother|wedding party|dance ?floor|special dances?|"
+    r"must[- ]?plays?|slow|party|warm[- ]?up|after ?party|intro|outro|send[- ]?off)\b", re.I)
+LIST_WORDS = re.compile(r"\b(play ?list|song ?list|set ?list|requests?)\b", re.I)
+
+
+def heading_name(line):
+    """'2. Reception / dance floor:' -> 'Reception / dance floor'"""
+    s = LINE_PREFIX.sub("", unescape(line).strip(), count=1).strip()
+    return re.sub(r"\s+", " ", s.strip(" !:-–—*#")).strip()
+
+
+def heading_kind(line):
+    """'dnp' (Do not play), 'title' (the list's own name, e.g. 'Johnson Wedding - song requests'),
+    'section' (Cocktail hour, Reception, ...) or None for a song line."""
+    if not is_heading(line):
+        return None
+    if DO_NOT_PLAY.search(line):
+        return "dnp"
+    name = heading_name(line)
+    if re.match(r"(play ?list|event|list name)\s*:", name, re.I):    # "Playlist: Johnson Wedding"
+        return "title"
+    if MOMENTS.search(name):
+        return "section"
+    if LIST_WORDS.search(name) or re.fullmatch(r"(\w+\s+)?(songs|music)", name, re.I):
+        return "title"
+    return "section"
+
+
+def _title_to_name(title):
+    """'Johnson Wedding - song requests' -> 'Johnson Wedding'; 'Playlist: Johnson Wedding' -> 'Johnson Wedding'"""
+    title = re.sub(r"^(play ?list|event|list name)\s*:\s*", "", title, flags=re.I)
+    parts = [p for p in re.split(r"\s+[-–—]\s+", title)
+             if not re.fullmatch(r"(song |music |dj )?(requests?|play ?list|song ?list|set ?list|songs)", p.strip(), re.I)]
+    return " - ".join(parts).strip() or title
+
+
 def from_text(text, progress=None):
     """Pasted text: song lines and/or Spotify links. -> (requests, list name or None, note or None)
-    Headings are skipped, and songs under a "Do not play" heading are left out."""
-    lines, banned = [], []
-    skipping = False
+    Headings are skipped (each song remembers its section heading in req["section"]), and songs
+    under a "Do not play" heading are left out. Order is kept as the client wrote it."""
+    items, banned = [], []            # items: ("song", req) | ("track", id) | ("list", url), with section
+    section, skipping, name, title = None, False, None, None
     for ln in text.splitlines():
-        if is_heading(ln):
-            skipping = bool(DO_NOT_PLAY.search(ln))
+        kind = heading_kind(ln)
+        if kind:
+            skipping = kind == "dnp"
+            if kind == "title" and not title and not items:
+                title = _title_to_name(heading_name(ln))
+            elif kind in ("section", "title"):   # a list-ish name further down is just another section
+                section = heading_name(ln)
             continue
-        (banned if skipping else lines).append(ln)
-    links = [SPOTIFY_RE.search(ln) for ln in lines]
-    playlist_links = [m for m in links if m and m.group(1) != "track"]
-    track_ids = [m.group(2) for m in links if m and m.group(1) == "track"]
-    reqs, note, name = [], None, None
-    for m in playlist_links:
-        r, n, note2 = spotify_list(m.group(0))
-        reqs += r
-        name = name or n
-        note = note or note2
-    if track_ids:
-        reqs += spotify_tracks(track_ids, progress)
-    for ln, m in zip(lines, links):
-        if not m:
+        if skipping:
+            if parse_line(ln):
+                banned.append(ln)
+            continue
+        m = SPOTIFY_RE.search(ln)
+        if m:
+            items.append(("track" if m.group(1) == "track" else "list", m.group(2) if m.group(1) == "track" else m.group(0), section))
+        else:
             r = parse_line(ln)
             if r:
-                reqs.append(r)
-    banned = [b for b in banned if parse_line(b)]
+                items.append(("song", r, section))
+    note = None
+    looked_up = {}
+    track_ids = [v for k, v, _ in items if k == "track"]
+    if track_ids:
+        for tid, r in zip(track_ids, spotify_tracks(track_ids, progress)):
+            looked_up[tid] = r
+    reqs = []
+    several_lists = sum(1 for k, _, _ in items if k == "list") > 1
+    for kind, v, sec in items:
+        if kind == "song":
+            got = [v]
+        elif kind == "track":
+            got = [dict(looked_up[v])]
+        else:
+            got, n, note2 = spotify_list(v)
+            if several_lists and sec is None:
+                sec = n                 # several playlists pasted: each one is its own section
+            else:
+                name = name or n
+            note = note or note2
+        for r in got:
+            r["section"] = sec
+            reqs.append(r)
     if banned:
         dnp = f"Left out {len(banned)} song{'s' if len(banned) != 1 else ''} listed under “Do not play”."
         note = dnp + ("\n\n" + note if note else "")
-    return reqs, name, note
+    return reqs, name or title, note
+
+
+def sections_of(reqs):
+    """Section names in the order they first appear; None (no heading) counts as its own group."""
+    seen = []
+    for r in reqs:
+        s = r.get("section")
+        if s not in seen:
+            seen.append(s)
+    return seen
 
 
 def _csv_requests(text):

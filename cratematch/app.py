@@ -58,6 +58,7 @@ class App(ctk.CTk):
         self.lib = None
         self.lib_busy = False
         self.reqs = None          # current request list
+        self.loaded_name = None   # name of the list as it was loaded (Spotify playlist name, file name)
         self.results = []         # match results, one per request
         self.choice = {}          # row -> chosen entry (None = left out)
         self.pending_note = None
@@ -148,8 +149,11 @@ class App(ctk.CTk):
         ctk.CTkLabel(head, text="3   Matches", font=f_h, text_color=TEXT).pack(side="left")
         self.summary = ctk.CTkLabel(head, text="", text_color=MUTED)
         self.summary.pack(side="left", padx=12)
+        self.edit_btn = ctk.CTkButton(head, text="Edit as text", width=100, height=26, fg_color="#2A2D34",
+                                      hover_color="#353943", command=self.edit_as_text, state="disabled")
+        self.edit_btn.pack(side="right")
         ctk.CTkLabel(head, text="Right-click a song to pick another version or leave it out", text_color=MUTED,
-                     font=self.f_small).pack(side="right")
+                     font=self.f_small).pack(side="right", padx=10)
 
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -172,6 +176,7 @@ class App(ctk.CTk):
         sb.pack(side="right", fill="y")
         for k, c in (("found", OK_C), ("check", CHECK_C), ("missing", MISS_C), ("skip", SKIP_C)):
             self.tree.tag_configure(k, foreground=c)
+        self.tree.tag_configure("section", foreground="#FF6B7F", background="#1F1418", font=("Segoe UI", 10, "bold"))
         self.tree.bind("<Button-3>", self.row_menu)
         self.tree.bind("<Double-1>", self.toggle_row)
 
@@ -184,6 +189,10 @@ class App(ctk.CTk):
         if self.settings.get("prefer_clean"):
             self.clean.select()
         self.clean.pack(side="left", padx=10)
+        self.split = ctk.CTkCheckBox(bot, text="Sub-list per section", fg_color=RED, hover_color=RED_HOVER,
+                                     command=self._split_changed)
+        if self.settings.get("split_sections", True):
+            self.split.select()     # packed only when the list has sections
         self.make_btn = ctk.CTkButton(bot, text="Create VirtualDJ playlist", height=38, width=220,
                                       font=ctk.CTkFont(size=14, weight="bold"), fg_color=RED, hover_color=RED_HOVER,
                                       command=self.create_playlist, state="disabled")
@@ -290,22 +299,42 @@ class App(ctk.CTk):
 
     def load_spotify_playlist(self, p):
         self.set_status(f"Reading “{p['name']}” from Spotify…")
-        self.bg(lambda: spotify_auth.playlist_songs(p["id"], p["name"]), self.got_requests)
+        self.bg(lambda: spotify_auth.playlist_songs(p["id"], p["name"]),
+                lambda r: self.got_requests(r, from_spotify=True))
 
     def load_link(self):
         url = self.link.get().strip()
         if not url:
             return
-        if not sources.SPOTIFY_RE.search(url):
+        links = list(sources.SPOTIFY_RE.finditer(url))
+        if not links:
             messagebox.showinfo(APP_NAME, "That doesn't look like a Spotify link. In Spotify: … → Share → "
                                 "Copy link to playlist, then paste it here.", parent=self)
             return
+        if len(links) > 1:  # several playlists pasted at once: each becomes its own sub-list
+            self.set_status(f"Reading {len(links)} playlists from Spotify…")
+            self.bg(lambda: self._several_playlists(links), self.got_requests)
+            return
         self.set_status("Reading the playlist from Spotify…")
-        m = sources.SPOTIFY_RE.search(url)
+        m = links[0]
         if m.group(1) == "playlist" and spotify_auth.signed_in():
-            self.bg(lambda: spotify_auth.playlist_songs(m.group(2)), self.got_requests)
+            self.bg(lambda: spotify_auth.playlist_songs(m.group(2)), lambda r: self.got_requests(r, from_spotify=True))
         else:
-            self.bg(lambda: sources.spotify_list(url), self.got_requests)
+            self.bg(lambda: sources.spotify_list(url), lambda r: self.got_requests(r, from_spotify=True))
+
+    def _several_playlists(self, links):
+        """Several playlist links -> one list with a section per playlist (full length when signed in)."""
+        reqs, note = [], None
+        for m in links:
+            if m.group(1) == "playlist" and spotify_auth.signed_in():
+                r, n, nt = spotify_auth.playlist_songs(m.group(2))
+            else:
+                r, n, nt = sources.spotify_list(m.group(0))
+            for q in r:
+                q["section"] = n
+            reqs += r
+            note = note or nt
+        return reqs, f"Client request {datetime.date.today():%b %d}", note
 
     # ---------- text / files ----------
     def load_text(self):
@@ -329,16 +358,43 @@ class App(ctk.CTk):
         def done(r):
             reqs, name, note = r
             self.text.delete("1.0", "end")
-            self.text.insert("1.0", "\n".join(q["raw"] for q in reqs))
+            self.text.insert("1.0", self._as_text(reqs, None))
             self.got_requests(r)
         self.bg(lambda: sources.from_file(p, prog), done)
 
-    def got_requests(self, r):
+    def got_requests(self, r, from_spotify=False):
         reqs, name, note = r
         if not reqs:
             self.show_error("No songs found in that list.")
             return
+        if from_spotify and self.reqs:
+            have = self.name.get().strip() or "the current list"
+            add = messagebox.askyesnocancel(
+                APP_NAME, f"You already have “{have}” loaded.\n\n"
+                f"Add “{name}” to it as its own sub-list?\n\n"
+                "Yes:  keep both, one folder in VirtualDJ with a sub-list for each playlist\n"
+                "No:  start over with just this playlist", parent=self)
+            if add is None:
+                self.set_status("")
+                return
+            if add:
+                old = self.reqs
+                if all(q.get("section") is None for q in old):
+                    for q in old:
+                        q["section"] = self.loaded_name or have
+                for q in reqs:
+                    q["section"] = name
+                self.reqs = old + reqs
+                self.pending_note = note
+                if self.name.get().strip() == (self.loaded_name or ""):
+                    self.name.delete(0, "end")
+                    self.name.insert(0, f"Client request {datetime.date.today():%b %d}")
+                self.set_status("Added. Rename the playlist (bottom left) to the event's name if you like.")
+                if self.lib is not None:
+                    self.rematch()
+                return
         self.reqs = reqs
+        self.loaded_name = name
         self.name.delete(0, "end")
         self.name.insert(0, name or f"Client request {datetime.date.today():%b %d}")
         self.pending_note = note
@@ -413,12 +469,65 @@ class App(ctk.CTk):
             return "skip"
         return m["status"] if self.choice[i] is m["entry"] else "found"
 
+    # ---------- sections ----------
+    OTHER = "Other requests"
+
+    def _sections(self):
+        """[(section name or None, [row indexes])] in the client's order."""
+        out = {}
+        for i, m in enumerate(self.results):
+            out.setdefault(m["req"].get("section"), []).append(i)
+        return list(out.items())
+
+    def _has_sections(self):
+        return len(self._sections()) > 1
+
+    def _split_changed(self):
+        self.settings["split_sections"] = bool(self.split.get())
+        self.save_settings()
+
+    def _as_text(self, reqs, name):
+        """Request list -> editable text, with each section as a heading line."""
+        lines = [f"Playlist: {name}", ""] if name else []
+        sec = object()
+        for q in reqs:
+            s = q.get("section")
+            if s != sec:
+                if lines and lines[-1] != "":
+                    lines.append("")
+                if s is not None or any(x.get("section") for x in reqs):
+                    lines.append(f"{s or self.OTHER}:")
+                sec = s
+            lines.append(q["raw"])
+        return "\n".join(lines) + "\n"
+
+    def edit_as_text(self):
+        if not self.reqs:
+            return
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", self._as_text(self.reqs, self.name.get().strip()))
+        self.tabs.set("Text list or document")
+        self.set_status("Add headings like “Cocktail hour:” above groups of songs to split them into sub-lists, "
+                        "then click “Find these songs”.")
+
     def fill_table(self):
         self.tree.delete(*self.tree.get_children())
-        for i, m in enumerate(self.results):
-            st = self._row_status(i)
-            self.tree.insert("", "end", iid=str(i), values=(STATUS_TEXT[st], m["req"]["raw"], self._file_text(i)),
-                             tags=(st,))
+        groups = self._sections()
+        show_heads = len(groups) > 1
+        for k, (sec, rows) in enumerate(groups):
+            if show_heads:
+                self.tree.insert("", "end", iid=f"sec{k}", tags=("section",),
+                                 values=("", f"▾  {sec or self.OTHER}   ({len(rows)} song{'s' if len(rows) != 1 else ''})", ""))
+            for i in rows:
+                m = self.results[i]
+                st = self._row_status(i)
+                self.tree.insert("", "end", iid=str(i), values=(STATUS_TEXT[st], m["req"]["raw"], self._file_text(i)),
+                                 tags=(st,))
+        if show_heads:
+            self.split.pack(side="left", padx=4, after=self.clean)
+        else:
+            self.split.pack_forget()
+        self.edit_btn.configure(state="normal")
         self.update_summary()
 
     def _file_label(self, e):
@@ -454,7 +563,7 @@ class App(ctk.CTk):
 
     def toggle_row(self, ev):
         iid = self.tree.identify_row(ev.y)
-        if not iid:
+        if not iid or iid.startswith("sec"):
             return
         i = int(iid)
         m = self.results[i]
@@ -466,7 +575,7 @@ class App(ctk.CTk):
 
     def row_menu(self, ev):
         iid = self.tree.identify_row(ev.y)
-        if not iid:
+        if not iid or iid.startswith("sec"):
             return
         self.tree.selection_set(iid)
         i = int(iid)
@@ -516,13 +625,27 @@ class App(ctk.CTk):
         if vdj.list_exists(self.vdj_home, name) and not messagebox.askyesno(
                 APP_NAME, f"VirtualDJ already has a list called “{name}”. Replace it?", parent=self):
             return
+        sections = None
+        if self._has_sections() and self.split.get():
+            sections = []
+            for sec, srows in self._sections():
+                keep = [i for i in srows if self.choice.get(i)]
+                if keep:
+                    sections.append((sec or self.OTHER, [self.choice[i] for i in keep],
+                                     [self.results[i]["req"] for i in keep]))
         try:
             vdj.write_playlist(self.vdj_home, name, [self.choice[i] for i in rows],
-                               [self.results[i]["req"] for i in rows])
+                               [self.results[i]["req"] for i in rows], sections=sections)
         except OSError as e:
             self.show_error(f"Couldn't save the playlist: {e}")
             return
-        msg = f"Made “{name}” with {len(rows)} songs.\n\nIn VirtualDJ, look under My Lists on the left."
+        if sections:
+            msg = (f"Made “{name}” with {len(rows)} songs, plus a sub-list for each part:\n\n"
+                   + "\n".join(f"   •  {s}  ({len(e)})" for s, e, _ in sections)
+                   + f"\n\nIn VirtualDJ, look under My Lists. “{name}” has all the songs; click the + next to "
+                     "it to see the sub-lists.")
+        else:
+            msg = f"Made “{name}” with {len(rows)} songs.\n\nIn VirtualDJ, look under My Lists on the left."
         if vdj.is_running():
             msg += ("\n\nVirtualDJ is open right now, so click the little − next to My Lists and then + "
                     "to make the new list appear.")

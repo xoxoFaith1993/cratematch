@@ -43,7 +43,8 @@ DOCX_XML = ('<?xml version="1.0"?><w:document xmlns:w="w"><w:body>'
 def show(label, reqs):
     print(f"--- {label}: {len(reqs)} songs")
     for r in reqs:
-        print(f"   artist={r['artist']!r:28} title={r['title']!r:34} swap={r['swap']} dur={r['duration']}")
+        print(f"   artist={r['artist']!r:28} title={r['title']!r:34} swap={r['swap']} dur={r['duration']} "
+              f"section={r.get('section')!r}")
 
 
 def main():
