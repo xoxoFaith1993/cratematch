@@ -7,7 +7,8 @@ import zipfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from cratematch import sources
 
-TXT = """Wedding playlist - must play!
+TXT = """Johnson Wedding - song requests
+Wedding playlist - must play!
 
 1. Ed Sheeran - Perfect
 2) Uptown Funk by Mark Ronson

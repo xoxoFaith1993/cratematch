@@ -126,6 +126,11 @@ def is_heading(line):
     bare = s.strip(" !:-–—*")
     if HEADING.fullmatch(bare) or re.fullmatch(r"(\w+\s+)?(songs|music|play ?list)", bare, re.I):
         return True          # "First Dance", "Reception songs", "Dinner music"
+    # "Johnson Wedding - song requests", "Smith party - playlist": one side of the dash names the list
+    for part in re.split(r"\s+[-–—]\s+", bare):
+        if re.fullmatch(r"(song |music |dj )?(requests?|play ?list|song ?list|set ?list|must[- ]?plays?|"
+                        r"do ?n[o']?t[- ]?plays?)", part.strip(), re.I):
+            return True
     if SECTION_WORDS.search(s) and not re.search(r"\bby\b", s, re.I):
         return s.isupper() or s.endswith("!") or not re.search(r"\s[-–—]\s", s)
     return s.isupper() and len(s) > 3
